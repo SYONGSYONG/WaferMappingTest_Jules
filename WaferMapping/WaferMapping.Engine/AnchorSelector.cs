@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace WaferMapping.Engine
 {
@@ -7,103 +8,143 @@ namespace WaferMapping.Engine
     {
         public List<Chip> SelectAnchors(WaferMap map, int refCol, int refRow)
         {
-            var result = new List<Chip>();
-            // Radius estimation
-            int maxRadius = Math.Min(map.Rows, map.Columns) / 2;
+            var result = new HashSet<Chip>(); // Use HashSet to avoid duplicates
 
-            // 8 directions: (dx, dy)
-            int[][] directions = new int[][]
+            // 1. Collect all valid chips (State == 1)
+            var validChips = new List<Chip>();
+            for (int r = 0; r < map.Rows; r++)
             {
-                new int[] { 0, 1 },   // Up
-                new int[] { 0, -1 },  // Down
-                new int[] { 1, 0 },   // Right
-                new int[] { -1, 0 },  // Left
-                new int[] { 1, 1 },   // Up-Right
-                new int[] { 1, -1 },  // Down-Right
-                new int[] { -1, 1 },  // Up-Left
-                new int[] { -1, -1 }  // Down-Left
-            };
-
-            double[] ratios = { 0.3, 0.7 };
-
-            foreach (var dir in directions)
-            {
-                foreach (var ratio in ratios)
+                for (int c = 0; c < map.Columns; c++)
                 {
-                    int targetDist = (int)(maxRadius * ratio);
-                    int targetCol = refCol + dir[0] * targetDist;
-                    int targetRow = refRow + dir[1] * targetDist;
-
-                    // Find nearest chip to (targetCol, targetRow)
-                    Chip nearest = FindNearestChip(map, targetCol, targetRow);
-                    if (nearest != null && !result.Contains(nearest))
-                    {
-                        result.Add(nearest);
-                    }
-                }
-            }
-
-            return result;
-        }
-
-        private Chip FindNearestChip(WaferMap map, int targetCol, int targetRow)
-        {
-            // BFS search for nearest State==1 chip
-            var visited = new HashSet<string>(); // "col,row" key
-            var queue = new Queue<Tuple<int, int>>();
-
-            queue.Enqueue(Tuple.Create(targetCol, targetRow));
-            visited.Add($"{targetCol},{targetRow}");
-
-            // Limit search to prevent infinite loops or long search
-            int maxSearchRadius = Math.Max(map.Rows, map.Columns) / 4;
-            if (maxSearchRadius < 10) maxSearchRadius = 10;
-
-            // To prioritize closest, we process level by level?
-            // Queue naturally does BFS, so first found is closest (in Manhattan/path distance).
-            // Euclidean distance might differ slightly but for grid BFS is good approximation.
-
-            while (queue.Count > 0)
-            {
-                var current = queue.Dequeue();
-                int c = current.Item1;
-                int r = current.Item2;
-
-                // Check bounds
-                if (c >= 0 && c < map.Columns && r >= 0 && r < map.Rows)
-                {
-                    Chip chip = map.GetChip(c, r);
+                    var chip = map.GetChip(c, r);
                     if (chip != null && chip.State == 1)
                     {
-                        return chip;
-                    }
-                }
-
-                // Stop if too far from target
-                if (Math.Abs(c - targetCol) > maxSearchRadius || Math.Abs(r - targetRow) > maxSearchRadius)
-                    continue;
-
-                // Neighbors (8-connectivity)
-                int[][] neighbors = {
-                    new int[]{0,1}, new int[]{0,-1}, new int[]{1,0}, new int[]{-1,0},
-                    new int[]{1,1}, new int[]{1,-1}, new int[]{-1,1}, new int[]{-1,-1}
-                };
-
-                foreach (var n in neighbors)
-                {
-                    int nc = c + n[0];
-                    int nr = r + n[1];
-                    string key = $"{nc},{nr}";
-
-                    if (!visited.Contains(key))
-                    {
-                        visited.Add(key);
-                        queue.Enqueue(Tuple.Create(nc, nr));
+                        validChips.Add(chip);
                     }
                 }
             }
 
-            return null;
+            if (validChips.Count == 0) return result.ToList();
+
+            // Always try to include the Reference Chip if it exists and is valid
+            var refChip = map.GetChip(refCol, refRow);
+            if (refChip != null && refChip.State == 1)
+            {
+                result.Add(refChip);
+            }
+
+            // 2. Define 8 Sectors (0, 45, 90, ..., 315)
+            // Target angles in degrees
+            double[] sectorAngles = { 0, 45, 90, 135, 180, 225, 270, 315 };
+            double sectorWidth = 15.0; // +/- 15 degrees
+
+            // Store candidates for each sector to ensure distribution
+            var sectorCandidates = new Dictionary<int, List<Chip>>();
+            for (int i = 0; i < 8; i++) sectorCandidates[i] = new List<Chip>();
+
+            // 3. Classify chips into sectors
+            foreach (var chip in validChips)
+            {
+                if (chip == refChip) continue; // Skip reference chip for sector logic (distance 0)
+
+                double dx = chip.ColumnIndex - refCol;
+                double dy = chip.RowIndex - refRow;
+
+                double dist = Math.Sqrt(dx*dx + dy*dy);
+                if (dist < 1.0) continue; // Too close to be meaningful
+
+                double angle = Math.Atan2(dy, dx) * 180.0 / Math.PI;
+                // Normalize to [0, 360)
+                if (angle < 0) angle += 360.0;
+
+                // Check which sector it falls into
+                for (int i = 0; i < 8; i++)
+                {
+                    double target = sectorAngles[i];
+                    double diff = Math.Abs(angle - target);
+
+                    // Handle wrap-around for 0/360
+                    if (diff > 180) diff = 360 - diff;
+
+                    if (diff <= sectorWidth)
+                    {
+                        sectorCandidates[i].Add(chip);
+                        break; // Assign to the first matching sector
+                    }
+                }
+            }
+
+            // 4. Select Edge and Midpoint for each sector
+            foreach (var kvp in sectorCandidates)
+            {
+                var candidates = kvp.Value;
+                if (candidates.Count == 0) continue;
+
+                // Sort by distance descending (farthest first)
+                candidates.Sort((a, b) =>
+                {
+                    double distA = GetDist(a, refCol, refRow);
+                    double distB = GetDist(b, refCol, refRow);
+                    return distB.CompareTo(distA);
+                });
+
+                // Edge Chip: Farthest
+                var edgeChip = candidates[0];
+                result.Add(edgeChip);
+
+                // Midpoint Chip: Closest to distance/2
+                if (candidates.Count > 1)
+                {
+                    double edgeDist = GetDist(edgeChip, refCol, refRow);
+                    double targetDist = edgeDist * 0.5;
+
+                    Chip bestMid = null;
+                    double minDiff = double.MaxValue;
+
+                    foreach (var c in candidates)
+                    {
+                        if (c == edgeChip) continue;
+                        double d = GetDist(c, refCol, refRow);
+                        double diff = Math.Abs(d - targetDist);
+                        if (diff < minDiff)
+                        {
+                            minDiff = diff;
+                            bestMid = c;
+                        }
+                    }
+
+                    if (bestMid != null)
+                    {
+                        result.Add(bestMid);
+                    }
+                }
+            }
+
+            // 5. Minimum Anchor Guarantee (Total >= 8)
+            // If we have fewer than 8, fill with remaining valid chips, prioritizing farthest from center (to expand coverage)
+            if (result.Count < 8 && validChips.Count > result.Count)
+            {
+                // Sort all valid chips by distance descending
+                var remaining = validChips
+                    .Where(c => !result.Contains(c))
+                    .OrderByDescending(c => GetDist(c, refCol, refRow))
+                    .ToList();
+
+                foreach (var c in remaining)
+                {
+                    result.Add(c);
+                    if (result.Count >= 8) break;
+                }
+            }
+
+            return result.ToList();
+        }
+
+        private double GetDist(Chip c, int refCol, int refRow)
+        {
+            double dx = c.ColumnIndex - refCol;
+            double dy = c.RowIndex - refRow;
+            return Math.Sqrt(dx*dx + dy*dy);
         }
     }
 }

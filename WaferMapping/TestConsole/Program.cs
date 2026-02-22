@@ -46,6 +46,26 @@ namespace TestConsole
 			var engine = new WaferMapEngine();
 			engine.LoadMap(strMap, rows, columns);
 
+			// Check for --half-moon argument
+			bool halfMoon = false;
+			foreach (var arg in args)
+			{
+				if (arg == "--half-moon") halfMoon = true;
+			}
+
+			if (halfMoon)
+			{
+				Console.WriteLine("Applying HALF-MOON defect pattern (Bottom half missing)...");
+				for (int r = rows / 2; r < rows; r++)
+				{
+					for (int c = 0; c < columns; c++)
+					{
+						var chip = engine.Map.GetChip(c, r);
+						if (chip != null) chip.State = 0;
+					}
+				}
+			}
+
 			// Add random defects (Missing Chips) AFTER loading
 			// To simulate "User provided map has 1, but actually missing in real life"?
 			// No, the requirement says "Use the provided map as base, randomly flip 1->0".
