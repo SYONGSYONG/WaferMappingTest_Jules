@@ -72,23 +72,23 @@ namespace WaferMapping.Engine
             for (int i = 0; i < n; i++)
                 result[i, i] = 1.0;
 
-            // Gaussian elimination
+            // Gaussian elimination with partial pivoting
             for (int i = 0; i < n; i++)
             {
                 // Find pivot
-                double pivot = input[i, i];
+                double pivotVal = input[i, i];
                 int pivotRow = i;
                 for (int j = i + 1; j < n; j++)
                 {
-                    if (Math.Abs(input[j, i]) > Math.Abs(pivot))
+                    if (Math.Abs(input[j, i]) > Math.Abs(pivotVal))
                     {
-                        pivot = input[j, i];
+                        pivotVal = input[j, i];
                         pivotRow = j;
                     }
                 }
 
-                if (Math.Abs(pivot) < 1e-10)
-                    throw new InvalidOperationException("Matrix is singular or near-singular.");
+                if (Math.Abs(pivotVal) < 1e-10)
+                    throw new InvalidOperationException("Matrix is singular or ill-conditioned (determinant close to zero). Cannot compute inverse.");
 
                 // Swap rows if needed
                 if (pivotRow != i)
@@ -105,7 +105,7 @@ namespace WaferMapping.Engine
                     }
                 }
 
-                // Scale row i
+                // Scale row i to make pivot 1
                 double scale = 1.0 / input[i, i];
                 for (int k = 0; k < n; k++)
                 {
