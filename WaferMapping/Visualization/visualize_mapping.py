@@ -16,22 +16,31 @@ def visualize_mapping(csv_path, output_path=None):
 
     plt.figure(figsize=(12, 10))
 
-    # Plot True Grid (Blue dots)
-    plt.scatter(df['TrueX'], df['TrueY'], c='blue', alpha=0.3, label='True Position (Distorted)', s=20)
+    # Filter by State
+    # State=1: Existing Chip
+    # State=0: Missing/Empty
 
-    # Plot Predicted Grid (Red crosses)
-    plt.scatter(df['PredictedX'], df['PredictedY'], c='red', marker='x', alpha=0.5, label='Predicted Position (Affine)', s=20)
+    existing = df[df['State'] == 1]
+    missing = df[df['State'] == 0]
+
+    # Plot Missing Chips (State=0) as faint gray dots to show map shape
+    plt.scatter(missing['TrueX'], missing['TrueY'], c='lightgray', marker='.', alpha=0.3, label='Empty/Missing', s=10)
+
+    # Plot Existing Chips (State=1) - True Position
+    plt.scatter(existing['TrueX'], existing['TrueY'], c='blue', alpha=0.5, label='Existing Chip (True)', s=25)
+
+    # Plot Predicted Position for Existing Chips only
+    plt.scatter(existing['PredictedX'], existing['PredictedY'], c='red', marker='x', alpha=0.6, label='Predicted (Affine)', s=25)
 
     # Plot Anchors (Green circles, larger)
     anchors = df[df['IsAnchor'] == True]
-    plt.scatter(anchors['TrueX'], anchors['TrueY'], c='green', s=100, facecolors='none', edgecolors='green', linewidth=2, label='Anchors')
+    plt.scatter(anchors['TrueX'], anchors['TrueY'], c='green', s=150, facecolors='none', edgecolors='green', linewidth=2, label='Anchors')
 
-    # Draw error lines (magnified for visibility if needed, but 1:1 is good for truth)
-    # To highlight the non-linear error, we can draw lines
-    for _, row in df.iterrows():
+    # Draw error lines only for existing chips
+    for _, row in existing.iterrows():
         plt.plot([row['TrueX'], row['PredictedX']], [row['TrueY'], row['PredictedY']], color='gray', alpha=0.2, linewidth=0.5)
 
-    plt.title('Wafer Mapping: Non-linear Distortion vs Affine Prediction')
+    plt.title('Wafer Mapping with Defects: True vs Predicted')
     plt.xlabel('Stage X (mm)')
     plt.ylabel('Stage Y (mm)')
     plt.legend()
