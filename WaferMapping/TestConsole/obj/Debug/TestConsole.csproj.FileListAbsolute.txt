@@ -1,7 +1,0 @@
-D:\GitManged\Jules\WaferMappingTest_Jules\WaferMapping\TestConsole\bin\Debug\TestConsole.exe.config
-D:\GitManged\Jules\WaferMappingTest_Jules\WaferMapping\TestConsole\bin\Debug\TestConsole.exe
-D:\GitManged\Jules\WaferMappingTest_Jules\WaferMapping\TestConsole\bin\Debug\TestConsole.pdb
-D:\GitManged\Jules\WaferMappingTest_Jules\WaferMapping\TestConsole\obj\Debug\TestConsole.csproj.AssemblyReference.cache
-D:\GitManged\Jules\WaferMappingTest_Jules\WaferMapping\TestConsole\obj\Debug\TestConsole.csproj.CoreCompileInputs.cache
-D:\GitManged\Jules\WaferMappingTest_Jules\WaferMapping\TestConsole\obj\Debug\TestConsole.exe
-D:\GitManged\Jules\WaferMappingTest_Jules\WaferMapping\TestConsole\obj\Debug\TestConsole.pdb

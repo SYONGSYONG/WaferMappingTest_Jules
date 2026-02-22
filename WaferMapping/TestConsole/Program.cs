@@ -1,107 +1,85 @@
-﻿using System.Collections.Generic;
-using System.ComponentModel.Design;
+using System;
+using System.Collections.Generic;
+using WaferMapping.Engine;
 
 namespace TestConsole
 {
 	internal class Program
 	{
-		public class Chip
-		{
-			/// <summary>
-			/// Map Row Index
-			/// </summary>
-			public int RowIndex { get; set; }
-
-			/// <summary>
-			/// Map Column Index
-			/// </summary>
-			public int ColumnIndex { get; set; }
-			public int State { get; set; } // 0 : Not Exist, 1: Exist
-
-			/// <summary>
-			/// EncoderPositionX
-			/// </summary>
-			public double PositionX { get; set; }
-
-			/// <summary>
-			/// EncoderPositionY
-			/// </summary>
-			public double PositionY { get; set; }
-		}
-
-		public class WaferMap
-		{
-			public WaferMap(int rows, int columns)
-			{
-				this.Rows = rows;
-				this.Columns = columns;
-				this.Map = new Dictionary<int, Dictionary<int, Chip>>();
-			}
-
-			public int Rows { get; set; }
-			public int Columns { get; set; }
-
-			/// <summary>
-			/// Key : Col, Value : Dictionary with key as Row and value as Chip State(0 : Not Exist, 1: Exist)
-			/// </summary>
-			public Dictionary<int, Dictionary<int, Chip>> Map { get; set; }
-		}
-
-		static double CalculateChipPositionX(double referenceChipPositionX, int columnIndex, int referenceIndexY, double chipSizeX, double idealPitchX)
-		{
-			return referenceChipPositionX + (columnIndex - referenceIndexY) * (chipSizeX + idealPitchX);
-		}
-
-		static double CalculateChipPositionY(double referenceChipPositionY, int rowIndex, int referenceIndexX, double chipSizeY, double idealPitchY)
-		{
-			return referenceChipPositionY + (rowIndex - referenceIndexX) * (chipSizeY + idealPitchY);
-		}
-
 		static void Main(string[] args)
 		{
+			// Example usage of WaferMapping.Engine
 			int rows = 5;
 			int columns = 6;
 
-			// Mapping 이후 찾은 Reference Chip의 Encoder PositionX
-			double referenceChipPositionX = 0.0;
-
-			// Mapping 이후 찾은 Reference Chip의 Encoder PositionY
-			double referenceChipPositionY = 0.0;
-
-			int referenceIndexX = 3;
-			int referenceIndexY = 4;
-
-			double chipSizeX = 10.0;
-			double chipSizeY = 15.0;
-
-			double idealPitchX = 1.0;
-			double idealPitchY = 1.0;
-
+			// Original map string
 			string strMap = "001100\r\n011110\r\n111111\r\n011110\r\n001100";
 
-			strMap = strMap.Replace("\r\n", string.Empty);
-
-			WaferMap waferMap = new WaferMap(rows, columns);
-			for (int i = 0; i < rows; i++)
+			// 1. Initialize Engine
+			var engine = new WaferMapEngine();
+			try
 			{
-				for (int j = 0; j < columns; j++)
-				{
-					int state = int.Parse(strMap[i * columns + j].ToString());
-					if (!waferMap.Map.ContainsKey(j))
-					{
-						waferMap.Map[j] = new Dictionary<int, Chip>();
-					}
-					waferMap.Map[j][i] = new Chip
-					{
-						RowIndex = i,
-						ColumnIndex = j,
-						State = state,
+				engine.LoadMap(strMap, rows, columns);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"Error loading map: {ex.Message}");
+				return;
+			}
 
-						PositionX = CalculateChipPositionX(referenceChipPositionX, j, referenceIndexY, chipSizeX, idealPitchX),
-						PositionY = CalculateChipPositionY(referenceChipPositionY, i, referenceIndexX, chipSizeY, idealPitchY)
-					};
+			// 2. Select Anchors
+			// Assuming reference at (Col=4, Row=3) based on original variables
+			int refCol = 4;
+			int refRow = 3;
+
+			// In a real scenario, you would confirm the reference chip exists
+			var refChip = engine.Map.GetChip(refCol, refRow);
+			if (refChip == null || refChip.State == 0)
+			{
+				Console.WriteLine("Warning: Reference chip does not exist or is empty.");
+			}
+
+			var anchors = engine.GetAnchorCandidates(refCol, refRow);
+			Console.WriteLine($"Found {anchors.Count} anchor candidates.");
+
+			// 3. Simulate Measurements (In real machine, move stage to these chips and get Encoder positions)
+			// Mocking a transform: X = Col * 11.0, Y = Row * 16.0
+			var measuredAnchors = new List<AnchorPoint>();
+			foreach (var chip in anchors)
+			{
+				// Simulated measurement
+				double measuredX = chip.ColumnIndex * 11.0;
+				double measuredY = chip.RowIndex * 16.0;
+
+				measuredAnchors.Add(new AnchorPoint(chip.ColumnIndex, chip.RowIndex, measuredX, measuredY));
+				Console.WriteLine($"Measured Anchor [{chip.ColumnIndex},{chip.RowIndex}] at ({measuredX}, {measuredY})");
+			}
+
+			// 4. Compute Transform and Update Map
+			// Outlier threshold 0.1mm (100um)
+			engine.UpdateMapPositions(measuredAnchors, outlierThreshold: 0.1);
+
+			// 5. Inspect Results
+			Console.WriteLine("\nMap Update Complete. Predicted Positions:");
+
+			// Check a few chips
+			for(int r=0; r<rows; r++)
+			{
+				for(int c=0; c<columns; c++)
+				{
+					var chip = engine.Map.GetChip(c, r);
+					if (chip.State == 1)
+					{
+						Console.WriteLine($"Chip[{c},{r}]: X={chip.PositionX:F2}, Y={chip.PositionY:F2}");
+					}
 				}
 			}
+
+			// Predict specific coordinate
+			var prediction = engine.Predict(0, 0);
+			Console.WriteLine($"\nPrediction for (0,0): X={prediction.x:F2}, Y={prediction.y:F2}");
+
+			Console.ReadLine();
 		}
 	}
 }
