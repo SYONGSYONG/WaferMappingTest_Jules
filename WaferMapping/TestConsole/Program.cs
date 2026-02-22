@@ -143,6 +143,7 @@ namespace TestConsole
 			// Reference Chip at center
 			int refCol = centerCol;
 			int refRow = centerRow;
+			Console.WriteLine($"Using Reference: ({refCol}, {refRow})");
 
 			// Ensure center chip exists (if defect, find nearest)
 			var centerChip = engine.Map.GetChip(refCol, refRow);
