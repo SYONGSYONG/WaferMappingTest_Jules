@@ -21,35 +21,60 @@ namespace TestConsole
 			var engine = new WaferMapEngine();
 			engine.LoadMap(strMap, rows, columns);
 
-			// 2. Define Ground Truth Transform (Distorted)
+			// 2. Define Simulation Parameters
+			// Chip Size (e.g., 9.9mm) + Sawing Lane Pitch (e.g., 0.1mm) = Effective Pitch (10.0mm)
+			double chipSizeX = 9.9;
+			double sawingPitchX = 0.1;
+			double effectivePitchX = chipSizeX + sawingPitchX;
+
+			double chipSizeY = 9.9;
+			double sawingPitchY = 0.1;
+			double effectivePitchY = chipSizeY + sawingPitchY;
+
+			// Define Ground Truth Transform (Affine + Non-linear Distortion)
 			// Rotation ~5 degrees
 			double theta = 5.0 * Math.PI / 180.0;
-			double scale = 1.0; // Assume perfect scale for now, or add scale error
+			double scale = 1.0;
 			double cos = Math.Cos(theta);
 			double sin = Math.Sin(theta);
 			double tx = 100.0;
 			double ty = 200.0;
 
-			// True Function: Maps (c, r) -> (x, y)
-			// Using chip pitch = 10mm
-			double pitchX = 10.0;
-			double pitchY = 10.0;
+			// Non-linear expansion factor (radial distortion simulator)
+			// Expansion increases slightly with distance from center
+			double distortionFactor = 1e-6; // Small factor, e.g. 1um per mm^2
+
+			int centerCol = columns / 2;
+			int centerRow = rows / 2;
 
 			Func<int, int, (double, double)> groundTruth = (c, r) =>
 			{
-				double localX = c * pitchX;
-				double localY = r * pitchY;
+				// Local grid based on effective pitch
+				double localX = (c - centerCol) * effectivePitchX;
+				double localY = (r - centerRow) * effectivePitchY;
 
-				// Apply rotation & translation
-				double globalX = (localX * cos - localY * sin) * scale + tx;
-				double globalY = (localX * sin + localY * cos) * scale + ty;
+				// Radial distance squared
+				double r2 = localX * localX + localY * localY;
+
+				// Apply non-linear expansion
+				// X' = X * (1 + k*r^2)
+				// Y' = Y * (1 + k*r^2)
+				double expansion = 1.0 + distortionFactor * r2;
+				localX *= expansion;
+				localY *= expansion;
+
+				// Apply Global Affine (Rotation + Translation)
+				// Returning to positive quadrant for convenience
+				double globalX = (localX * cos - localY * sin) * scale + tx + (centerCol * effectivePitchX);
+				double globalY = (localX * sin + localY * cos) * scale + ty + (centerRow * effectivePitchY);
 
 				return (globalX, globalY);
 			};
 
 			// 3. Select Anchors
-			int refCol = 10;
-			int refRow = 10;
+			// Reference Chip slightly off-center
+			int refCol = centerCol;
+			int refRow = centerRow;
 			var anchors = engine.GetAnchorCandidates(refCol, refRow);
 			Console.WriteLine($"Found {anchors.Count} anchor candidates.");
 
@@ -73,6 +98,7 @@ namespace TestConsole
 			// 5. Compute Transform
 			try
 			{
+				// Outlier threshold 0.1mm
 				engine.UpdateMapPositions(measuredAnchors, outlierThreshold: 0.1);
 				Console.WriteLine("Map updated successfully.");
 			}
