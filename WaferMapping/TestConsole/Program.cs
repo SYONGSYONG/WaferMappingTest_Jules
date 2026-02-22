@@ -66,21 +66,9 @@ namespace TestConsole
 				}
 			}
 
-			// Add random defects (Missing Chips) AFTER loading
-			// To simulate "User provided map has 1, but actually missing in real life"?
-			// No, the requirement says "Use the provided map as base, randomly flip 1->0".
-			// This means the engine *thinks* there are chips (if map says 1), but maybe they are missing physically?
-			// OR the map *ITSELF* has defects.
-			// "기본 맵 형태를 제시해줬어... 내가 제시한 기본 맵에서 랜덤하게 1을 0으로 변경해서 테스트해주고"
-			// This likely means the map loaded into the engine *should reflect* these defects,
-			// OR the engine loads a perfect map, but physically chips are missing.
-			// Given "Anchor는 Chip이 있는 곳만 잡아서 했어야겠지", implies the engine *knows* where chips are (State=1).
-			// So I will modify the map *in the engine* to reflect defects (State=0).
-
+			// Add random defects (Missing Chips)
 			var rnd = new Random();
 			int defectCount = 0;
-
-			// Modify the engine's map directly to simulate defects
 			for (int r = 0; r < rows; r++)
 			{
 				for (int c = 0; c < columns; c++)
@@ -88,7 +76,6 @@ namespace TestConsole
 					var chip = engine.Map.GetChip(c, r);
 					if (chip != null && chip.State == 1)
 					{
-						// 10% chance to be missing/defect
 						if (rnd.NextDouble() < 0.1)
 						{
 							chip.State = 0;
@@ -174,8 +161,15 @@ namespace TestConsole
 			// 5. Compute Transform
 			try
 			{
-				engine.UpdateMapPositions(measuredAnchors, outlierThreshold: 0.1);
-				Console.WriteLine("Map updated successfully.");
+				if (anchors.Count < 3)
+				{
+					Console.WriteLine("Insufficient anchors found. Mapping aborted.");
+				}
+				else
+				{
+					engine.UpdateMapPositions(measuredAnchors, outlierThreshold: 0.1);
+					Console.WriteLine("Map updated successfully.");
+				}
 			}
 			catch (Exception ex)
 			{
