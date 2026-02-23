@@ -61,47 +61,23 @@ namespace TestConsole
 					char c = cleanMap[index];
 					int state = (c == '1') ? 1 : 0;
 
-					// Always create chip object? Or only if state 1?
-					// User requirement implies "Grid 좌표계를 복원".
-					// Code sample creates chips for 0 too.
-
 					var unit = wafer.GetUnitInformation(j + 1, i + 1); // Ensure chip object exists in wafer map
 					unit.WorkingState = state; // Set state in wafer map
 				}
 			}
 
-			//engine.LoadMap(strMap, rows, columns);
-
-			//// Check for --half-moon argument
-			//bool halfMoon = false;
-			//foreach (var arg in args)
-			//{
-			//	if (arg == "--half-moon") halfMoon = true;
-			//}
-
-			//if (halfMoon)
-			//{
-			//	Console.WriteLine("Applying HALF-MOON defect pattern (Bottom half missing)...");
-			//	for (int r = rows / 2; r < rows; r++)
-			//	{
-			//		for (int c = 0; c < columns; c++)
-			//		{
-			//			var chip = engine.Map.GetChip(c, r);
-			//			if (chip != null) chip.State = 0;
-			//		}
-			//	}
-			//}
-
 			int refCol = 12;
 			int refRow = 19;
 
-			// Add random defects (Missing Chips)
+			// Add random defects (Missing Chips), ensuring Reference is kept
 			var rnd = new Random();
 			int defectCount = 0;
 			for (int r = 1; r <= rows; r++)
 			{
 				for (int c = 1; c <= columns; c++)
 				{
+					if (c == refCol && r == refRow) continue; // Skip Reference Chip
+
 					var unit = wafer.GetUnitInformation(c, r);
 					if (unit != null && unit.WorkingState == 1)
 					{
@@ -113,7 +89,7 @@ namespace TestConsole
 					}
 				}
 			}
-			Console.WriteLine($"Injected {defectCount} random defects (State 1 -> 0).");
+			Console.WriteLine($"Injected {defectCount} random defects (State 1 -> 0). Reference kept.");
 
 			// 2. Define Simulation Parameters
 			double chipSizeX = 9.9;
@@ -161,11 +137,21 @@ namespace TestConsole
 			Console.WriteLine($"Using Reference: ({refCol}, {refRow})");
 
 			// Ensure center chip exists (if defect, find nearest)
-			// var centerChip = engine.Map.GetChip(refCol, refRow);
-			var centerChip = wafer.GetUnitInformation(refCol + 1, refRow + 1); // +1 for 1-based indexing in wafer map
+			var centerChip = wafer.GetUnitInformation(refCol, refRow); // +1 for 1-based indexing in wafer map is already handled by caller if input is 1-based
+            // Note: refCol/refRow are 1-based here as per previous context? Let's check.
+            // In SelectAnchors call: selector.SelectAnchors(wafer, refCol, refRow, 1);
+            // In random defect loop: if (c == refCol && r == refRow) continue;
+            // It seems refCol/refRow are used as 1-based indices consistently.
+
+			//var centerChip = wafer.GetUnitInformation(refCol + 1, refRow + 1);
+            // Correcting to use variables directly as they seem 1-based
+            centerChip = wafer.GetUnitInformation(refCol, refRow);
+
 			if (centerChip == null || centerChip.WorkingState == 0)
 			{
-				Console.WriteLine("Warning: Center reference chip is missing/defect. Anchors might be skewed.");
+                // Force Reference Chip to exist
+                if (centerChip != null) centerChip.WorkingState = 1;
+				Console.WriteLine("Warning: Reference chip was missing/defect. Forced to State 1.");
 			}
 
 			var anchors = engine.GetAnchorCandidates(wafer, refCol, refRow);
@@ -173,11 +159,39 @@ namespace TestConsole
 
 			// 4. Simulate Measurements with Incremental Update
 			Console.WriteLine("\n--- Starting Incremental Update Simulation ---");
-            // Set Nominal Transform for 1-point update
+
+            // Initial Setup: Calculate Nominal Positions relative to Reference
+            // We assume we have found the Reference Chip at its Ground Truth position initially.
+            var (refTrueX, refTrueY) = groundTruth(refCol, refRow);
+
+            // Set Initial Transform using Reference Position
+            // Tx, Ty will be such that Predict(refCol, refRow) == (refTrueX, refTrueY)
+            // Initial Scale/Rot is Nominal (Design Pitch)
             engine.SetInitialTransform(effectivePitchX, effectivePitchY);
 
-			var measuredAnchors = new List<AnchorPoint>();
+            // Update initial AxisPositionForDryRun for all chips based on this nominal transform + Ref offset
+            // We need to shift the nominal transform so that Ref aligns with its measured position.
+            // Nominal Transform: X = Col * Pitch, Y = Row * Pitch
+            // We want: X' = (Col - RefCol) * Pitch + RefTrueX
+
+            // Let's effectively "Measure" the Reference Chip first to initialize the transform properly
+            var measuredAnchors = new List<AnchorPoint>();
+            measuredAnchors.Add(new AnchorPoint(refCol, refRow, refTrueX, refTrueY));
+            engine.UpdateTransform(measuredAnchors); // This will set Tx, Ty based on Ref
+
+            // Apply this initial transform to all chips
+			for (int r = 1; r <= rows; r++)
+			{
+				for (int c = 1; c <= columns; c++)
+				{
+					var unit = wafer.GetUnitInformation(c, r);
+					var (x, y) = engine.Predict(c, r);
+					unit.AxisPositionForDryRun = new FrameOfSystem3.DPointXY(x, y);
+				}
+			}
+
 			var anchorSet = new HashSet<string>();
+            anchorSet.Add($"{refCol},{refRow}");
 
 			try
 			{
@@ -189,24 +203,21 @@ namespace TestConsole
 				{
 					foreach (var chip in anchors)
 					{
-						// Predict current anchor position using current transform (before update)
-						// This simulates the "Jump" to the anchor.
-						try
-						{
-							var (predX, predY) = engine.Predict(chip.UnitIndex.x, chip.UnitIndex.y);
-							var (trueX_next, trueY_next) = groundTruth(chip.UnitIndex.x, chip.UnitIndex.y);
-							double err = Math.Sqrt(Math.Pow(predX - trueX_next, 2) + Math.Pow(predY - trueY_next, 2));
-							Console.WriteLine($"Jumping to Anchor ({chip.UnitIndex.x}, {chip.UnitIndex.y}). Prediction Error: {err:F4}");
-						}
-						catch (InvalidOperationException)
-						{
-							// Should not happen if SetInitialTransform is called
-							Console.WriteLine($"Jumping to Anchor ({chip.UnitIndex.x}, {chip.UnitIndex.y}). First jump (Nominal).");
-						}
+                        if (chip.UnitIndex.x == refCol && chip.UnitIndex.y == refRow) continue; // Skip Ref (already measured)
 
+                        // 1. Move to Target (Predict)
+                        // In real scenario, we move stage to chip.AxisPositionForDryRun
+                        double targetX = chip.AxisPositionForDryRun.x;
+                        double targetY = chip.AxisPositionForDryRun.y;
+
+                        // 2. Measure (Ground Truth)
 						var (trueX, trueY) = groundTruth(chip.UnitIndex.x, chip.UnitIndex.y);
 
-						// Add noise +/- 20um
+                        // Calculate Distance (Error)
+						double err = Math.Sqrt(Math.Pow(targetX - trueX, 2) + Math.Pow(targetY - trueY, 2));
+						Console.WriteLine($"Jumping to Anchor ({chip.UnitIndex.x}, {chip.UnitIndex.y}). Prediction Error: {err:F4}");
+
+                        // Add noise +/- 20um to Measurement
 						double noiseX = (rnd.NextDouble() - 0.5) * 0.04;
 						double noiseY = (rnd.NextDouble() - 0.5) * 0.04;
 
@@ -214,8 +225,20 @@ namespace TestConsole
 						measuredAnchors.Add(newAnchor);
 						anchorSet.Add($"{chip.UnitIndex.x},{chip.UnitIndex.y}");
 
-						// Update Transform incrementally
+						// 3. Update Transform incrementally
 						engine.UpdateTransform(measuredAnchors, outlierThreshold: 0.1);
+
+                        // 4. Apply new Transform to REMAINING chips (Update Path)
+                        // This ensures next jumps benefit from the update
+                        for (int r = 1; r <= rows; r++)
+                        {
+                            for (int c = 1; c <= columns; c++)
+                            {
+                                var unit = wafer.GetUnitInformation(c, r);
+                                var (x, y) = engine.Predict(c, r);
+                                unit.AxisPositionForDryRun = new FrameOfSystem3.DPointXY(x, y);
+                            }
+                        }
 					}
 
 					Console.WriteLine("--- Incremental Update Complete ---\n");
