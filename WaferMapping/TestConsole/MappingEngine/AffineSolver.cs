@@ -70,7 +70,14 @@ namespace FrameOfSystem3.Work.WaferMap.MappingEngine
             };
         }
 
-        public Transform FitWithOutlierRemoval(List<AnchorPoint> points, double threshold)
+        /// <summary>
+        /// Fits an affine transform with outlier removal.
+        /// </summary>
+        /// <param name="points">List of anchor points.</param>
+        /// <param name="threshold">Residual threshold for outlier detection.</param>
+        /// <param name="fixedPoint">Optional reference point that must NOT be removed.</param>
+        /// <returns>The best fit transform.</returns>
+        public Transform FitWithOutlierRemoval(List<AnchorPoint> points, double threshold, AnchorPoint fixedPoint = null)
         {
             var currentPoints = new List<AnchorPoint>(points);
             Transform transform = null;
@@ -87,6 +94,10 @@ namespace FrameOfSystem3.Work.WaferMap.MappingEngine
 
                 foreach (var p in currentPoints)
                 {
+                    // Skip fixed point (reference)
+                    if (fixedPoint != null && p.Col == fixedPoint.Col && p.Row == fixedPoint.Row)
+                        continue;
+
                     var (predX, predY) = transform.TransformPoint(p.Col, p.Row);
                     double dx = p.X - predX;
                     double dy = p.Y - predY;

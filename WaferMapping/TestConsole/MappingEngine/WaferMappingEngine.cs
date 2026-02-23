@@ -65,12 +65,13 @@ namespace FrameOfSystem3.Work.WaferMap.MappingEngine
         public List<UnitInformation> GetAnchorCandidates(WaferInformation wafer, int refCol, int refRow)
         {
             var selector = new AnchorSelector();
-            return selector.SelectAnchors(wafer, refCol, refRow);
+            // Start Offset is 1 for 1-based WaferInformation
+            return selector.SelectAnchors(wafer, refCol, refRow, 1);
         }
 
-        public void CalculateFitTransform(List<AnchorPoint> measuredAnchors, double outlierThreshold = 0.1)
+        public void CalculateFitTransform(List<AnchorPoint> measuredAnchors, double outlierThreshold = 0.1, AnchorPoint referenceAnchor = null)
         {
-			_currentTransform = _solver.FitWithOutlierRemoval(measuredAnchors, outlierThreshold);
+			_currentTransform = _solver.FitWithOutlierRemoval(measuredAnchors, outlierThreshold, referenceAnchor);
 		}
 
 		///// <summary>

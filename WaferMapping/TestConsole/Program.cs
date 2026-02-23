@@ -92,6 +92,9 @@ namespace TestConsole
 			//	}
 			//}
 
+			int refCol = 12;
+			int refRow = 19;
+
 			// Add random defects (Missing Chips)
 			var rnd = new Random();
 			int defectCount = 0;
@@ -154,8 +157,7 @@ namespace TestConsole
 
 			// 3. Select Anchors
 			// Reference Chip at center
-			int refCol = centerCol;
-			int refRow = centerRow;
+
 			Console.WriteLine($"Using Reference: ({refCol}, {refRow})");
 
 			// Ensure center chip exists (if defect, find nearest)
