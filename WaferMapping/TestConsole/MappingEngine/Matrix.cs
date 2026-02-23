@@ -1,7 +1,7 @@
 using System;
 using System.Text;
 
-namespace WaferMapping.Engine
+namespace FrameOfSystem3.Work.WaferMap.MappingEngine
 {
     public class Matrix
     {
