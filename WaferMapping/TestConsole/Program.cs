@@ -171,32 +171,56 @@ namespace TestConsole
 			var anchors = engine.GetAnchorCandidates(wafer, refCol, refRow);
 			Console.WriteLine($"Found {anchors.Count} anchor candidates (State=1 only).");
 
-			// 4. Simulate Measurements with Noise
+			// 4. Simulate Measurements with Incremental Update
+			Console.WriteLine("\n--- Starting Incremental Update Simulation ---");
+            // Set Nominal Transform for 1-point update
+            engine.SetInitialTransform(effectivePitchX, effectivePitchY);
+
 			var measuredAnchors = new List<AnchorPoint>();
 			var anchorSet = new HashSet<string>();
 
-			foreach (var chip in anchors)
-			{
-				var (trueX, trueY) = groundTruth(chip.UnitIndex.x, chip.UnitIndex.y);
-
-				// Add noise +/- 20um
-				double noiseX = (rnd.NextDouble() - 0.5) * 0.04;
-				double noiseY = (rnd.NextDouble() - 0.5) * 0.04;
-
-				measuredAnchors.Add(new AnchorPoint(chip.UnitIndex.x, chip.UnitIndex.y, trueX + noiseX, trueY + noiseY));
-				anchorSet.Add($"{chip.UnitIndex.x},{chip.UnitIndex.y}");
-			}
-
-			// 5. Compute Transform
 			try
 			{
-				if (anchors.Count < 3)
+				if (anchors.Count == 0)
 				{
-					Console.WriteLine("Insufficient anchors found. Mapping aborted.");
+					Console.WriteLine("No anchors found.");
 				}
 				else
 				{
-					engine.CalculateFitTransform(measuredAnchors, outlierThreshold: 0.1);
+					foreach (var chip in anchors)
+					{
+						// Predict current anchor position using current transform (before update)
+						// This simulates the "Jump" to the anchor.
+						try
+						{
+							var (predX, predY) = engine.Predict(chip.UnitIndex.x, chip.UnitIndex.y);
+							var (trueX_next, trueY_next) = groundTruth(chip.UnitIndex.x, chip.UnitIndex.y);
+							double err = Math.Sqrt(Math.Pow(predX - trueX_next, 2) + Math.Pow(predY - trueY_next, 2));
+							Console.WriteLine($"Jumping to Anchor ({chip.UnitIndex.x}, {chip.UnitIndex.y}). Prediction Error: {err:F4}");
+						}
+						catch (InvalidOperationException)
+						{
+							// Should not happen if SetInitialTransform is called
+							Console.WriteLine($"Jumping to Anchor ({chip.UnitIndex.x}, {chip.UnitIndex.y}). First jump (Nominal).");
+						}
+
+						var (trueX, trueY) = groundTruth(chip.UnitIndex.x, chip.UnitIndex.y);
+
+						// Add noise +/- 20um
+						double noiseX = (rnd.NextDouble() - 0.5) * 0.04;
+						double noiseY = (rnd.NextDouble() - 0.5) * 0.04;
+
+						var newAnchor = new AnchorPoint(chip.UnitIndex.x, chip.UnitIndex.y, trueX + noiseX, trueY + noiseY);
+						measuredAnchors.Add(newAnchor);
+						anchorSet.Add($"{chip.UnitIndex.x},{chip.UnitIndex.y}");
+
+						// Update Transform incrementally
+						engine.UpdateTransform(measuredAnchors, outlierThreshold: 0.1);
+					}
+
+					Console.WriteLine("--- Incremental Update Complete ---\n");
+
+					// Update final map positions
 					for (int r = 1; r <= rows; r++)
 					{
 						for (int c = 1; c <= columns; c++)

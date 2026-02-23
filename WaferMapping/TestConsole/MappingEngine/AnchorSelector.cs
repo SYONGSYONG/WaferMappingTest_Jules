@@ -211,7 +211,11 @@ namespace FrameOfSystem3.Work.WaferMap.MappingEngine
                 }
             }
 
-            return result.ToList();
+            // 5. Sort by distance from Reference (Ascending)
+            // This ensures we jump to closer anchors first, minimizing expansion error.
+            var sortedResult = result.OrderBy(c => GetDist(c, refCol, refRow)).ToList();
+
+            return sortedResult;
         }
 
         private double GetDist(UnitInformation c, int refCol, int refRow)

@@ -122,5 +122,99 @@ namespace FrameOfSystem3.Work.WaferMap.MappingEngine
 
             return transform;
         }
+
+        /// <summary>
+        /// Updates only the translation (Tx, Ty) based on the provided points, keeping A, B, C, D fixed from the reference transform.
+        /// Useful for single-point updates.
+        /// </summary>
+        public Transform FitTranslation(List<AnchorPoint> points, Transform refTransform)
+        {
+            if (points == null || points.Count == 0)
+                throw new ArgumentException("At least 1 point is required for translation update.");
+
+            double sumTx = 0;
+            double sumTy = 0;
+            int n = points.Count;
+
+            foreach (var p in points)
+            {
+                // Calculate idealized linear part
+                double linearX = refTransform.A * p.Col + refTransform.B * p.Row;
+                double linearY = refTransform.C * p.Col + refTransform.D * p.Row;
+
+                // Residual becomes the translation
+                sumTx += (p.X - linearX);
+                sumTy += (p.Y - linearY);
+            }
+
+            return new Transform
+            {
+                A = refTransform.A,
+                B = refTransform.B,
+                C = refTransform.C,
+                D = refTransform.D,
+                Tx = sumTx / n,
+                Ty = sumTy / n
+            };
+        }
+
+        /// <summary>
+        /// Fits a Similarity Transform (Translation + Rotation + Uniform Scale).
+        /// Solves for u, v, Tx, Ty where A=u, B=-v, C=v, D=u.
+        /// </summary>
+        public Transform FitSimilarity(List<AnchorPoint> points)
+        {
+            if (points == null || points.Count < 2)
+                throw new ArgumentException("At least 2 points are required for similarity fitting.");
+
+            int n = points.Count;
+            // Design Matrix M: [2n x 4]
+            // [ c, -r, 1, 0 ]
+            // [ r,  c, 0, 1 ]
+            Matrix M = new Matrix(2 * n, 4);
+            Matrix Y = new Matrix(2 * n, 1);
+
+            for (int i = 0; i < n; i++)
+            {
+                int row1 = 2 * i;
+                int row2 = 2 * i + 1;
+
+                // X equation: X = u*c - v*r + Tx
+                M[row1, 0] = points[i].Col;   // u
+                M[row1, 1] = -points[i].Row;  // v
+                M[row1, 2] = 1.0;             // Tx
+                M[row1, 3] = 0.0;             // Ty
+                Y[row1, 0] = points[i].X;
+
+                // Y equation: Y = v*c + u*r + Ty -> Y = u*r + v*c + Ty
+                M[row2, 0] = points[i].Row;   // u
+                M[row2, 1] = points[i].Col;   // v
+                M[row2, 2] = 0.0;             // Tx
+                M[row2, 3] = 1.0;             // Ty
+                Y[row2, 0] = points[i].Y;
+            }
+
+            // Solve M * Beta = Y
+            // Beta = (M^T * M)^-1 * M^T * Y
+            Matrix Mt = M.Transpose();
+            Matrix MtM = Mt * M;
+            Matrix MtM_Inv = MtM.Inverse();
+            Matrix Beta = MtM_Inv * Mt * Y;
+
+            double u = Beta[0, 0];
+            double v = Beta[1, 0];
+            double tx = Beta[2, 0];
+            double ty = Beta[3, 0];
+
+            return new Transform
+            {
+                A = u,
+                B = -v,
+                C = v,
+                D = u,
+                Tx = tx,
+                Ty = ty
+            };
+        }
     }
 }

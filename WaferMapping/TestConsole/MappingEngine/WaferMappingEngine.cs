@@ -21,10 +21,47 @@ namespace FrameOfSystem3.Work.WaferMap.MappingEngine
 
 		AffineSolver _solver;
         AffineSolver.Transform _currentTransform;
+        AffineSolver.Transform _nominalTransform;
 
         public WaferMappingEngine()
         {
             _solver = new AffineSolver();
+        }
+
+        public void SetInitialTransform(double scaleX, double scaleY)
+        {
+            _nominalTransform = new AffineSolver.Transform
+            {
+                A = scaleX,
+                B = 0,
+                C = 0,
+                D = scaleY,
+                Tx = 0,
+                Ty = 0
+            };
+            // Initialize current transform to nominal so Predict works immediately
+            _currentTransform = _nominalTransform;
+        }
+
+        public void UpdateTransform(List<AnchorPoint> measuredAnchors, double outlierThreshold = 0.1, AnchorPoint referenceAnchor = null)
+        {
+            if (measuredAnchors == null || measuredAnchors.Count == 0) return;
+
+            if (measuredAnchors.Count == 1)
+            {
+                if (_nominalTransform == null)
+                    throw new InvalidOperationException("Nominal transform not set. Call SetInitialTransform before 1-point update.");
+
+                _currentTransform = _solver.FitTranslation(measuredAnchors, _nominalTransform);
+            }
+            else if (measuredAnchors.Count == 2)
+            {
+                _currentTransform = _solver.FitSimilarity(measuredAnchors);
+            }
+            else
+            {
+                _currentTransform = _solver.FitWithOutlierRemoval(measuredAnchors, outlierThreshold, referenceAnchor);
+            }
         }
 
         //public void LoadMap(string mapData, int rows, int columns)
