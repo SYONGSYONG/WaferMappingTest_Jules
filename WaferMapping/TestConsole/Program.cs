@@ -1,11 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.IO;
 using System.Text;
-using Define.DefineEnumProject.WaferMap;
-using FrameOfSystem3.Work.WaferMap.MappingEngine;
-using FrameOfSystem3.Work.WaferMap.WaferMapDatabase;
+using WaferMapping.Engine;
 
 namespace TestConsole
 {
@@ -42,69 +39,48 @@ namespace TestConsole
 				"00000001111110000000"
 			};
 
-			WaferInformation wafer = new WaferInformation("TEST_WAFER");
-			wafer.ChangeArrayCount(rows, columns);
-
 			// Join map for loading
 			string strMap = string.Join("", mapLines);
 
 			// 1. Initialize Engine
-			var engine = new WaferMappingEngine();
+			var engine = new WaferMapEngine();
+			engine.LoadMap(strMap, rows, columns);
 
-			string cleanMap = strMap.Replace("\r", "").Replace("\n", "");
-
-			for (int i = 0; i < rows; i++)
+			// Check for --half-moon argument
+			bool halfMoon = false;
+			foreach (var arg in args)
 			{
-				for (int j = 0; j < columns; j++)
-				{
-					int index = i * columns + j;
-					char c = cleanMap[index];
-					int state = (c == '1') ? 1 : 0;
-
-					// Always create chip object? Or only if state 1?
-					// User requirement implies "Grid 좌표계를 복원".
-					// Code sample creates chips for 0 too.
-
-					var unit = wafer.GetUnitInformation(j + 1, i + 1); // Ensure chip object exists in wafer map
-					unit.WorkingState = state; // Set state in wafer map
-				}
+				if (arg == "--half-moon") halfMoon = true;
 			}
 
-			//engine.LoadMap(strMap, rows, columns);
-
-			//// Check for --half-moon argument
-			//bool halfMoon = false;
-			//foreach (var arg in args)
-			//{
-			//	if (arg == "--half-moon") halfMoon = true;
-			//}
-
-			//if (halfMoon)
-			//{
-			//	Console.WriteLine("Applying HALF-MOON defect pattern (Bottom half missing)...");
-			//	for (int r = rows / 2; r < rows; r++)
-			//	{
-			//		for (int c = 0; c < columns; c++)
-			//		{
-			//			var chip = engine.Map.GetChip(c, r);
-			//			if (chip != null) chip.State = 0;
-			//		}
-			//	}
-			//}
+			if (halfMoon)
+			{
+				Console.WriteLine("Applying HALF-MOON defect pattern (Bottom half missing)...");
+				// 1-based logic for rows: rows/2 + 1 to rows
+				for (int r = rows / 2 + 1; r <= rows; r++)
+				{
+					for (int c = 1; c <= columns; c++)
+					{
+						var chip = engine.Map.GetChip(c, r);
+						if (chip != null) chip.State = 0;
+					}
+				}
+			}
 
 			// Add random defects (Missing Chips)
 			var rnd = new Random();
 			int defectCount = 0;
+			// 1-based loop
 			for (int r = 1; r <= rows; r++)
 			{
 				for (int c = 1; c <= columns; c++)
 				{
-					var unit = wafer.GetUnitInformation(c, r);
-					if (unit != null && unit.WorkingState == 1)
+					var chip = engine.Map.GetChip(c, r);
+					if (chip != null && chip.State == 1)
 					{
 						if (rnd.NextDouble() < 0.1)
 						{
-							unit.WorkingState = 0;
+							chip.State = 0;
 							defectCount++;
 						}
 					}
@@ -153,20 +129,20 @@ namespace TestConsole
 			};
 
 			// 3. Select Anchors
-			// Reference Chip at center
-			int refCol = centerCol;
-			int refRow = centerRow;
+			// Reference Chip at center (1-based)
+			int refCol = centerCol; // e.g. 10
+			int refRow = centerRow; // e.g. 10
+			// Wait, if rows=20, centerCol=10 is fine (0..19), but for 1..20, center is 10 or 11.
+			// Let's use 10,10 as before.
 			Console.WriteLine($"Using Reference: ({refCol}, {refRow})");
 
-			// Ensure center chip exists (if defect, find nearest)
-			// var centerChip = engine.Map.GetChip(refCol, refRow);
-			var centerChip = wafer.GetUnitInformation(refCol + 1, refRow + 1); // +1 for 1-based indexing in wafer map
-			if (centerChip == null || centerChip.WorkingState == 0)
+			var centerChip = engine.Map.GetChip(refCol, refRow);
+			if (centerChip == null || centerChip.State == 0)
 			{
 				Console.WriteLine("Warning: Center reference chip is missing/defect. Anchors might be skewed.");
 			}
 
-			var anchors = engine.GetAnchorCandidates(wafer, refCol, refRow);
+			var anchors = engine.GetAnchorCandidates(refCol, refRow);
 			Console.WriteLine($"Found {anchors.Count} anchor candidates (State=1 only).");
 
 			// 4. Simulate Measurements with Noise
@@ -175,14 +151,14 @@ namespace TestConsole
 
 			foreach (var chip in anchors)
 			{
-				var (trueX, trueY) = groundTruth(chip.UnitIndex.x, chip.UnitIndex.y);
+				var (trueX, trueY) = groundTruth(chip.ColumnIndex, chip.RowIndex);
 
 				// Add noise +/- 20um
 				double noiseX = (rnd.NextDouble() - 0.5) * 0.04;
 				double noiseY = (rnd.NextDouble() - 0.5) * 0.04;
 
-				measuredAnchors.Add(new AnchorPoint(chip.UnitIndex.x, chip.UnitIndex.y, trueX + noiseX, trueY + noiseY));
-				anchorSet.Add($"{chip.UnitIndex.x},{chip.UnitIndex.y}");
+				measuredAnchors.Add(new AnchorPoint(chip.ColumnIndex, chip.RowIndex, trueX + noiseX, trueY + noiseY));
+				anchorSet.Add($"{chip.ColumnIndex},{chip.RowIndex}");
 			}
 
 			// 5. Compute Transform
@@ -194,17 +170,7 @@ namespace TestConsole
 				}
 				else
 				{
-					engine.CalculateFitTransform(measuredAnchors, outlierThreshold: 0.1);
-					for (int r = 1; r <= rows; r++)
-					{
-						for (int c = 1; c <= columns; c++)
-						{
-							var unit = wafer.GetUnitInformation(c, r);
-							var (x, y) = engine.CurrentTransform.TransformPoint(c, r);
-							unit.AxisPositionForDryRun = new FrameOfSystem3.DPointXY(x, y);
-							unit.AxisPositionAppiedAlignResult = new FrameOfSystem3.DPointXY(x, y);
-						}
-					}
+					engine.UpdateMapPositions(measuredAnchors, outlierThreshold: 0.1);
 					Console.WriteLine("Map updated successfully.");
 				}
 			}
@@ -218,12 +184,13 @@ namespace TestConsole
 			var sb = new StringBuilder();
 			sb.AppendLine("Col,Row,State,TrueX,TrueY,PredictedX,PredictedY,IsAnchor");
 
+			// 1-based loop
 			for (int r = 1; r <= rows; r++)
 			{
 				for (int c = 1; c <= columns; c++)
 				{
-					var chip = wafer.GetUnitInformation(c, r);
-					int state = (chip != null) ? chip.WorkingState : 0;
+					var chip = engine.Map.GetChip(c, r);
+					int state = (chip != null) ? chip.State : 0;
 
 					var (trueX, trueY) = groundTruth(c, r);
 					var (predX, predY) = engine.Predict(c, r);

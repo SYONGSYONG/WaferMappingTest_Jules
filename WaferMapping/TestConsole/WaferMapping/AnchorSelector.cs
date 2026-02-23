@@ -1,41 +1,36 @@
-using Define.DefineEnumProject.WaferMap;
-using FrameOfSystem3.Work.WaferMap.WaferMapDatabase;
-using FrameOfSystem3.Work.WaferMap.WaferMapDatabase.InnerDocument;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace FrameOfSystem3.Work.WaferMap.MappingEngine
+namespace WaferMapping.Engine
 {
     public class AnchorSelector
     {
-        public List<UnitInformation> SelectAnchors(WaferInformation map, int refCol, int refRow)
+        public List<Chip> SelectAnchors(WaferInformation map, int refCol, int refRow)
         {
-            var result = new HashSet<UnitInformation>(); // Use HashSet to avoid duplicates
+            var result = new HashSet<Chip>(); // Use HashSet to avoid duplicates
 
             // 1. Collect all valid chips (State == 1)
-            var validChips = new List<UnitInformation>();
+            var validChips = new List<Chip>();
 
-            for(int row = 1; row <= map.ArrayCount.y; row++)
+            // 1-based indexing loop
+            for (int r = 1; r <= map.Rows; r++)
             {
-                for(int col = 1; col <= map.ArrayCount.x; col++)
+                for (int c = 1; c <= map.Columns; c++)
                 {
-                    var chip = map.GetUnitInformation(col, row);
-
-                    // Ready나 NotWork가 칩이 있는 것으로 간주
-                    if(chip != null
-                        && (chip.WorkingState == (int)UNIT_WORKING_STATE.READY || chip.WorkingState == (int)UNIT_WORKING_STATE.NOT_WORK))
+                    var chip = map.GetChip(c, r);
+                    if (chip != null && chip.State == 1)
                     {
                         validChips.Add(chip);
                     }
                 }
-			}
+            }
 
-			if (validChips.Count == 0) return result.ToList();
+            if (validChips.Count == 0) return result.ToList();
 
             // Always try to include the Reference Chip if it exists and is valid
-            var refChip = map.GetUnitInformation(refCol, refRow);
-            if (refChip != null && (refChip.WorkingState == (int)UNIT_WORKING_STATE.READY || refChip.WorkingState == (int)UNIT_WORKING_STATE.NOT_WORK))
+            var refChip = map.GetChip(refCol, refRow);
+            if (refChip != null && refChip.State == 1)
             {
                 result.Add(refChip);
             }
@@ -46,17 +41,16 @@ namespace FrameOfSystem3.Work.WaferMap.MappingEngine
             double sectorWidth = 15.0; // +/- 15 degrees
 
             // Store candidates for each sector to ensure distribution
-            var sectorCandidates = new Dictionary<int, List<UnitInformation>>();
-            for (int i = 0; i < 8; i++) sectorCandidates[i] = new List<UnitInformation>();
+            var sectorCandidates = new Dictionary<int, List<Chip>>();
+            for (int i = 0; i < 8; i++) sectorCandidates[i] = new List<Chip>();
 
             // 3. Classify chips into sectors
             foreach (var chip in validChips)
             {
                 if (chip == refChip) continue; // Skip reference chip for sector logic (distance 0)
 
-                // dx, dy는 index 거리를 의미?
-                double dx = chip.UnitIndex.x - refCol;
-                double dy = chip.UnitIndex.y - refRow;
+                double dx = chip.ColumnIndex - refCol;
+                double dy = chip.RowIndex - refRow;
 
                 double dist = Math.Sqrt(dx*dx + dy*dy);
                 if (dist < 1.0) continue; // Too close to be meaningful
@@ -106,7 +100,7 @@ namespace FrameOfSystem3.Work.WaferMap.MappingEngine
                     double edgeDist = GetDist(edgeChip, refCol, refRow);
                     double targetDist = edgeDist * 0.5;
 
-					UnitInformation bestMid = null;
+                    Chip bestMid = null;
                     double minDiff = double.MaxValue;
 
                     foreach (var c in candidates)
@@ -148,10 +142,10 @@ namespace FrameOfSystem3.Work.WaferMap.MappingEngine
             return result.ToList();
         }
 
-        private double GetDist(UnitInformation c, int refCol, int refRow)
+        private double GetDist(Chip c, int refCol, int refRow)
         {
-            double dx = c.UnitIndex.x - refCol;
-            double dy = c.UnitIndex.y - refRow;
+            double dx = c.ColumnIndex - refCol;
+            double dy = c.RowIndex - refRow;
             return Math.Sqrt(dx*dx + dy*dy);
         }
     }
