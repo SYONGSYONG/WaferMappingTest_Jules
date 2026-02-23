@@ -1,4 +1,4 @@
-namespace WaferMapping.Engine
+namespace FrameOfSystem3.Work.WaferMap.MappingEngine
 {
     public class AnchorPoint
     {
